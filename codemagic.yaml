@@ -1,0 +1,42 @@
+workflows:
+  growmo-testflight:
+    name: GrowMo TestFlight (internal)
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    integrations:
+      app_store_connect: growmo-apple
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tillwildfang.growmo
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Bundle GrowMo into the iPhone app
+        script: npx cap sync ios
+      - name: Set the TestFlight build number
+        script: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          project = Path('ios/App/App.xcodeproj/project.pbxproj')
+          source = project.read_text()
+          updated = source.replace('CURRENT_PROJECT_VERSION = 1;', f'CURRENT_PROJECT_VERSION = {int(os.environ["BUILD_NUMBER"])};')
+          if source == updated:
+              raise SystemExit('Could not set iOS build number')
+          project.write_text(updated)
+          PY
+      - name: Set up signing for internal TestFlight testing
+        script: |
+          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
+      - name: Build iPhone app
+        script: xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
